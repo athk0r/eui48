@@ -60,6 +60,7 @@ pub type Eui64 = [u8; EUI64LEN];
 #[repr(C)]
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "diesel_derives", derive(AsExpression, FromSqlRow))]
+#[cfg_attr(feature = "diesel", sql_type = "diesel::sql_types::Text")]
 pub struct MacAddress {
     /// The 48-bit number stored in 6 bytes
     eui: Eui48,
