@@ -29,6 +29,8 @@ regex = { version = "1.3.9", optional = false }
 rustc-serialize = { version = "0.3.24", optional = true }
 serde = { version = "1.0.114", optional = true }
 serde_json = { version = "1.0.56", optional = true }
+diesel = { version = "1.4.5", features = [], optional = true }
+diesel_derives = { version = "1.4.1", optional = true}
 
 [dev-dependencies]
 bincode = "1.3.1"
@@ -43,3 +45,6 @@ appveyor = { repository = "abaumhauer/eui48", branch = "master", service = "gith
 default = ["rustc-serialize"]
 disp_hexstring = []
 serde_bytes = ["serde"]
+sqlite = ["diesel/sqlite", "diesel_derives/sqlite"]
+postgres = ["diesel/postgres", "diesel_derives/postgres"]
+mysql = ["diesel/mysql" , "diesel_derives/mysql"]

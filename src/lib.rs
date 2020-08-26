@@ -23,6 +23,10 @@ extern crate rustc_serialize;
 extern crate serde;
 #[cfg(feature = "serde_json")]
 extern crate serde_json;
+#[cfg(feature = "diesel ")]
+#[macro_use] extern crate diesel;
+#[cfg(feature = "diesel")]
+extern crate diesel_derives;
 
 use std::default::Default;
 use std::error::Error;
@@ -34,6 +38,15 @@ use regex::Regex;
 use rustc_serialize::{Decodable, Decoder, Encodable, Encoder};
 #[cfg(feature = "serde")]
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+#[cfg(feature = "diesel")]
+use diesel::{serialize::ToSql, serialize, serialize::Output, 
+             sql_types, deserialize, deserialize::FromSql};
+#[cfg(any(feature = "sqlite", feature = "mysql"))]
+use diesel::backend;
+#[cfg(feature = "diesel")]
+use std::io::Write;
+#[cfg(feature = "diesel_derives")]
+use diesel_derives::{AsExpression, FromSqlRow};
 
 /// A 48-bit (6 byte) buffer containing the EUI address
 pub const EUI48LEN: usize = 6;
@@ -46,6 +59,7 @@ pub type Eui64 = [u8; EUI64LEN];
 /// A MAC address (EUI-48)
 #[repr(C)]
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[cfg_attr(feature = "diesel_derives", derive(AsExpression, FromSqlRow))]
 pub struct MacAddress {
     /// The 48-bit number stored in 6 bytes
     eui: Eui48,
@@ -382,6 +396,100 @@ impl<'de> Deserialize<'de> for MacAddress {
             }
         }
         deserializer.deserialize_bytes(MacAddressVisitor)
+    }
+}
+
+#[cfg(feature = "sqlite")]
+impl<DB> ToSql<sql_types::Text, DB> for MacAddress
+    where
+        DB: backend::Backend,
+        str: ToSql<sql_types::Text, DB>,
+{
+    fn to_sql<W: Write>(&self, out: &mut Output<W, DB>) -> serialize::Result {
+        //(*self as i32).to_sql(out)
+        (self.to_hex_string().as_str()).to_sql(out)
+    }
+}
+
+#[cfg(feature = "sqlite")]
+impl<ST, DB> FromSql<ST, DB> for MacAddress
+    where DB: backend::Backend,
+    *const str: FromSql<ST, DB>,
+{
+    fn from_sql(bytes: Option<&DB::RawValue>) -> deserialize::Result<Self> {
+        let str_ptr = <*const str as FromSql<ST, DB>>::from_sql(bytes)?;
+        // We know that the pointer impl will never return null
+        let string = unsafe { &*str_ptr };
+        Ok(MacAddress::parse_str(string.to_owned().as_ref()).expect("Error parsing MacAddress from Database."))
+    }
+}
+
+#[cfg(feature = "postgres")]
+macro_rules! assert_or_error {
+    ($cond:expr) => {
+        if !$cond {
+            return err!();
+        }
+    };
+
+    ($cond:expr, $msg:expr) => {
+        if !$cond {
+            return err!($msg);
+        }
+    };
+}
+
+#[cfg(feature = "postgres")]
+macro_rules! err {
+    () => {
+        Err("invalid network address format".into())
+    };
+    ($msg:expr) => {
+        Err(format!("invalid network address format. {}", $msg).into())
+    };
+}
+
+#[cfg(feature = "postgres")]
+impl ToSql<sql_types::MacAddr, diesel::pg::Pg> for MacAddress {
+    fn to_sql<W: Write>(&self, out: &mut Output<W, diesel::pg::Pg>) -> serialize::Result {
+        out.write_all(&self.to_array()[..])
+            .map(|_| serialize::IsNull::No)
+            .map_err(Into::into)
+    }
+}
+
+#[cfg(feature = "postgres")]
+impl FromSql<sql_types::MacAddr, diesel::pg::Pg> for MacAddress {
+    fn from_sql(bytes: Option<&[u8]>) -> deserialize::Result<Self> {
+        let bytes = diesel::not_none!(bytes);
+        assert_or_error!(6 == bytes.len(), "input isn't 6 bytes.");
+        let result = [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]];
+        Ok(MacAddress::new(result))
+    }
+}
+
+#[cfg(feature = "mysql")]
+impl<ST, DB> FromSql<ST, DB> for MacAddress
+    where
+        DB: backend::Backend,
+        *const str: FromSql<ST, DB>,
+{
+    fn from_sql(bytes: Option<&DB::RawValue>) -> deserialize::Result<Self> {
+        let str_ptr = <*const str as FromSql<ST, DB>>::from_sql(bytes)?;
+        // We know that the pointer impl will never return null
+        let string = unsafe { &*str_ptr };
+        Ok(MacAddress::parse_str(string).unwrap())
+    }
+}
+
+#[cfg(feature = "mysql")]
+impl<DB> ToSql<sql_types::Text, DB> for MacAddress
+    where
+        DB: backend::Backend,
+        str: ToSql<sql_types::Text, DB>,
+{
+    fn to_sql<W: Write>(&self, out: &mut Output<W, DB>) -> serialize::Result {
+        (self.to_hex_string().as_ref() as &str).to_sql(out)
     }
 }
 
